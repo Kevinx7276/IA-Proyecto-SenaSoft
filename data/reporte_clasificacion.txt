@@ -1,0 +1,12 @@
+📊 Reporte de Clasificación – KELU IA Comunitaria
+
+                precision    recall  f1-score   support
+
+     Educación       1.00      1.00      1.00       110
+Medio Ambiente       1.00      1.00      1.00       110
+         Salud       1.00      1.00      1.00       108
+     Seguridad       1.00      1.00      1.00       109
+
+      accuracy                           1.00       437
+     macro avg       1.00      1.00      1.00       437
+  weighted avg       1.00      1.00      1.00       437

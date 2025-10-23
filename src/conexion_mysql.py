@@ -7,7 +7,7 @@ def conectar_a_mysql():
         mydb = mysql.connector.connect(
             host="localhost",        # Dirección del servidor MySQL
             user="root",             # Usuario de MySQL
-            password="123456", # Contraseña de MySQL
+            password="", # Contraseña de MySQL
             database="comunidad_1"     # Nombre de la base de datos
         )
         return mydb
