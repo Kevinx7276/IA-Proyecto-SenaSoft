@@ -1,111 +1,133 @@
+# -*- coding: utf-8 -*-
+"""
+KELU IA Comunitaria – Sistema MVC + ETL + IA + Vista Web + Evaluación del Modelo + Ética
+Autor: SENA / SENASoft 2025
+"""
+
+import os
+import sys
+import time
+import webbrowser
+import threading
+import requests
 import pandas as pd
-from transformers import pipeline
-from conexion_mysql import conectar_a_mysql  # Importamos la función de conexión
+from dotenv import load_dotenv
+from visualize_results import graficar_categorias
+from evaluate_model import evaluar_modelo  # ✅ Evaluación del modelo
+from ethics import evaluar_etica           # ✅ Módulo ético
 
-# Cargar el pipeline de clasificación de texto de Hugging Face
-classifier = pipeline("zero-shot-classification", model="distilbert-base-uncased")
+# ==============================================================
+# CONFIGURACIÓN INICIAL
+# ==============================================================
 
-# Definir las categorías posibles
-categorias_posibles = ["Medio Ambiente", "Educación", "Seguridad", "Salud", "Infraestructura", "Otro"]
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
+load_dotenv()
 
-# Conectar a la base de datos MySQL
-mydb = conectar_a_mysql()
-if mydb is None:
-    print("No se pudo conectar a la base de datos. Terminando el proceso.")
-    exit()
+print("🚀 Iniciando aplicación KELU IA Comunitaria...")
 
-mycursor = mydb.cursor()
+# ==============================================================
+# IMPORTACIONES
+# ==============================================================
 
-# Cargar el archivo CSV con los datos
-file_path = '../data/dataset_comunidades_senasoft.csv'
-df = pd.read_csv(file_path)
+from controllers.etl_controller import ejecutar_proceso_etl
+from views.chat_view import app as chat_app
 
-# Eliminar filas con valores NaN en la columna 'Comentario' (si hay comentarios vacíos o nulos)
-df = df.dropna(subset=['Comentario'])
+# ==============================================================
+# CONFIGURACIÓN DE RED (IP LOCAL)
+# ==============================================================
 
-# Detectar columna de "urgencia"
-col_urgencia = next((c for c in df.columns if any(k in c.lower() for k in ['urgenc', 'urgente', 'prioridad'])), None)
-print(f"Columna para urgencia detectada: {col_urgencia}")
+HOST = "192.168.0.122"  # Cambia según tu IP local (usa ipconfig)
+PORT = 5000
 
-# Función para analizar un solo comentario usando Hugging Face Zero-Shot Classification
-def analizar_comentario_huggingface(comentario):
+# ==============================================================
+# FUNCIÓN PARA LEVANTAR FLASK
+# ==============================================================
+
+def iniciar_servidor():
+    print(f"🌐 Iniciando servidor Flask en http://{HOST}:{PORT} ...")
+    chat_app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
+# ==============================================================
+# FUNCIÓN PARA ESPERAR A QUE EL SERVIDOR ESTÉ LISTO
+# ==============================================================
+
+def esperar_servidor(url, intentos=20, pausa=1):
+    for _ in range(intentos):
+        try:
+            requests.get(url)
+            return True
+        except requests.exceptions.ConnectionError:
+            time.sleep(pausa)
+    return False
+
+# ==============================================================
+# FLUJO PRINCIPAL
+# ==============================================================
+
+def main():
+    print("\n==============================")
+    print(" 🦅 KELU IA COMUNITARIA")
+    print("==============================\n")
+
+    # Paso 1️⃣: Ejecutar proceso ETL y capturar datos limpios
+    df = ejecutar_proceso_etl(retornar_dataframe=True)
+
+    # Paso 2️⃣: Evaluar el modelo de clasificación
     try:
-        # Realizar clasificación en las categorías predefinidas
-        result = classifier(comentario, candidate_labels=categorias_posibles)
-        categorias = result['labels']  # Extraer las etiquetas de categoría
-        return categorias
-    except Exception as e:
-        print(f"Error analizando el comentario: {comentario}. Error: {str(e)}")
-        return []
+        print("\n🔍 Evaluando rendimiento del modelo...")
+        df_eval = df[['Categorias', 'Categoría Del Problema']].copy()
+        df_eval.rename(columns={
+            'Categorias': 'Categoria_Predicha',
+            'Categoría Del Problema': 'Categoria_Real'
+        }, inplace=True)
 
-# Función para insertar los resultados en MySQL (inserción en lote de 10 comentarios)
-def insertar_en_mysql_lote(comentarios, categorias, ciudades, urgencias):
+        # Ejecutar evaluación del modelo
+        evaluar_modelo(df_eval)
+
+        # Guardar resultados en archivo
+        reporte_path = os.path.join(BASE_DIR, "..", "data", "reporte_clasificacion.txt")
+        from sklearn.metrics import classification_report
+        with open(reporte_path, "w", encoding="utf-8") as f:
+            f.write("📊 Reporte de Clasificación – KELU IA Comunitaria\n\n")
+            f.write(classification_report(df_eval["Categoria_Real"], df_eval["Categoria_Predicha"]))
+        print(f"📄 Reporte guardado en: {reporte_path}")
+
+    except Exception as e:
+        print(f"⚠️ No se pudo evaluar el modelo: {e}")
+
+    # Paso 3️⃣: Evaluación ética y detección de sesgos
     try:
-        # Convertir las listas de categorías en cadenas de texto (por ejemplo, 'Seguridad, Medio Ambiente')
-        categorias_str = [', '.join(categorias[i]) for i in range(len(categorias))]
-        
-        # Crear una lista de valores para insertar en MySQL
-        insert_values = [(comentarios[i], ciudades[i], urgencias[i], categorias_str[i]) for i in range(len(comentarios))]
-        
-        # Insertar todos los comentarios en una sola operación
-        sql_comentario = """
-        INSERT INTO comentarios (Comentario, Ciudad, NivelDeUrgencia, Categorias) 
-        VALUES (%s, %s, %s, %s)
-        """
-        mycursor.executemany(sql_comentario, insert_values)
-        mydb.commit()
-        print(f"Comentarios insertados: {len(comentarios)}")
+        evaluar_etica(df)
     except Exception as e:
-        print(f"Error insertando en MySQL: {str(e)}")
+        print(f"⚠️ No se pudo realizar la evaluación ética: {e}")
 
-# Función para procesar cada lote de 10 comentarios
-def procesar_lote(lote):
-    comentarios = []
-    categorias = []
-    ciudades = []
-    urgencias = []
+    # Paso 4️⃣: Visualización de resultados
+    try:
+        graficar_categorias(df)
+    except Exception as e:
+        print(f"⚠️ No se pudo graficar categorías: {e}")
 
-    # Procesar cada comentario en el lote
-    for index, row in lote.iterrows():
-        categorias_comentario = analizar_comentario_huggingface(row['Comentario'])
-        comentarios.append(row['Comentario'])
-        categorias.append(categorias_comentario)
-        ciudades.append(row['Ciudad'])  # Obtener la ubicación de la columna 'Ciudad'
-        urgencias.append(row['Nivel de urgencia'])  # Obtener el nivel de urgencia de la columna 'Nivel de urgencia'
+    # Paso 5️⃣: Iniciar el servidor Flask en un hilo
+    servidor = threading.Thread(target=iniciar_servidor, daemon=True)
+    servidor.start()
 
-        # Asignar las categorías al DataFrame (en la columna correcta)
-        lote.at[index, 'Categoría del problema'] = ', '.join(categorias_comentario)  # Convertir en cadena
+    # Paso 6️⃣: Esperar hasta que el servidor esté accesible
+    url = f"http://{HOST}:{PORT}"
+    print(f"⌛ Esperando a que el servidor esté disponible en {url} ...")
+    if esperar_servidor(url):
+        print("✅ Servidor activo, abriendo navegador...")
+        webbrowser.open(url)
+    else:
+        print("⚠️ No se pudo conectar automáticamente. Ábrelo manualmente en:", url)
 
-    # Insertar los comentarios procesados en lote
-    insertar_en_mysql_lote(comentarios, categorias, ciudades, urgencias)
+    # Mantener la aplicación viva
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Servidor detenido manualmente.")
 
-    # Guardar el progreso en un archivo CSV
-    df_subset_filtered = lote[['Comentario', 'Ciudad', 'Nivel de urgencia', 'Categoría del problema']]
-    df_subset_filtered.to_csv('../data/resultados_parciales.csv', index=False, encoding='utf-8')
-    print(f"💾 Progreso guardado para comentarios {lote.index[0] + 1} a {lote.index[-1] + 1}")
 
-# Función para procesar el dataset en lotes pequeños y almacenar en MySQL
-def procesar_lotes(df, batch_size=10):  # Procesar en lotes de 10 para manejar los 10k
-    total_comments = len(df)
-    num_batches = (total_comments // batch_size) + (1 if total_comments % batch_size > 0 else 0)
-    
-    print(f"Total de comentarios: {total_comments}")
-    print(f"Total de lotes: {num_batches}")
-
-    # Procesar en lotes de 10 de forma secuencial (sin paralelización)
-    for batch_num in range(num_batches):
-        start_idx = batch_num * batch_size
-        end_idx = min((batch_num + 1) * batch_size, total_comments)
-        print(f"\nProcesando comentarios {start_idx + 1} a {end_idx}...")
-
-        batch = df.iloc[start_idx:end_idx]  # Obtener el lote actual
-
-        # Procesar el lote actual
-        procesar_lote(batch)
-
-# Iniciar el procesamiento del dataset
-procesar_lotes(df, batch_size=10)  # Aquí procesamos en lotes de 10 para los 10,000 comentarios
-
-# Cerrar la conexión a la base de datos
-mycursor.close()
-mydb.close()
+if __name__ == "__main__":
+    main()
