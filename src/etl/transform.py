@@ -1,102 +1,116 @@
 # -*- coding: utf-8 -*-
+"""
+Módulo de Transformación de Datos – KELU IA Comunitaria
+Autor: SENA / SENASoft 2025
+
+Procesos:
+✅ Limpieza y normalización de datos.
+✅ Clasificación automática (Educación, Salud, Medio Ambiente, Seguridad, Otro).
+✅ Generación de explicación (columna 'Razon').
+✅ Eliminación de duplicados, conservando diferencias de urgencia.
+"""
+
 import pandas as pd
 
 def transformar_datos(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Limpia, normaliza y prepara los datos del dataset comunitario.
-    Usa la columna 'Categoría del problema' si está disponible, 
-    o infiere la categoría y la razón según palabras clave.
-    """
     print("🧹 Iniciando transformación de datos reales...")
 
-    # ============================================================
-    # 🔍 Validación inicial
-    # ============================================================
+    # ====================================================
+    # 1️⃣ Validación inicial
+    # ====================================================
     if df is None or df.empty:
         print("⚠️ DataFrame vacío. No hay datos para transformar.")
         return pd.DataFrame()
 
-    # ============================================================
-    # 🧾 Normalizar nombres de columnas
-    # ============================================================
+    # ====================================================
+    # 2️⃣ Normalización de nombres de columnas
+    # ====================================================
     df.columns = [col.strip().title() for col in df.columns]
 
-    # ============================================================
-    # 🧩 Asegurar columnas clave
-    # ============================================================
+    # ====================================================
+    # 3️⃣ Verificación de columnas mínimas necesarias
+    # ====================================================
     columnas_requeridas = ["Comentario", "Ciudad", "Nivel De Urgencia", "Categoría Del Problema"]
     for col in columnas_requeridas:
         if col not in df.columns:
             print(f"⚠️ Columna faltante: {col}. Se creará vacía.")
             df[col] = ""
 
-    # ============================================================
-    # 🧹 Limpieza básica
-    # ============================================================
-    df = df.drop_duplicates()
+    # ====================================================
+    # 4️⃣ Limpieza básica de texto y valores faltantes
+    # ====================================================
     df = df.dropna(subset=["Comentario"])
     df["Comentario"] = df["Comentario"].astype(str).str.lower().str.strip()
+    df["Ciudad"] = df["Ciudad"].fillna("Desconocida").astype(str).str.lower().str.strip()
+    df["Nivel De Urgencia"] = df["Nivel De Urgencia"].fillna("Media").astype(str).str.strip()
 
-    # ============================================================
-    # 🌎 Normalizar columnas de texto
-    # ============================================================
-    df["Ciudad"] = df["Ciudad"].fillna("Desconocida").astype(str).str.strip()
-
-    # Manejo flexible del campo de urgencia (con o sin espacio)
-    if "Nivel De Urgencia" in df.columns:
-        df["NivelDeUrgencia"] = df["Nivel De Urgencia"].fillna("Media").astype(str).str.strip()
-    else:
-        df["NivelDeUrgencia"] = df.get("NivelDeUrgencia", "Media").astype(str).str.strip()
-
-    # ============================================================
-    # 🏷️ Normalizar categorías si existen
-    # ============================================================
-    if "Categoría Del Problema" in df.columns:
-        df["Categoría Del Problema"] = (
-            df["Categoría Del Problema"]
-            .astype(str)
-            .str.strip()
-            .str.title()
-        )
-
-    # ============================================================
-    # 🧮 Métrica adicional: longitud del comentario
-    # ============================================================
+    # ====================================================
+    # 5️⃣ Longitud del comentario (métrica de análisis)
+    # ====================================================
     df["LongitudComentario"] = df["Comentario"].apply(len)
 
-    # ============================================================
-    # 🤖 Clasificación automática + explicación
-    # ============================================================
+    # ====================================================
+    # 6️⃣ Clasificación automática + explicación
+    # ====================================================
     def clasificar_y_explicar(texto, categoria_existente):
         texto_l = texto.lower()
+        razon = ""
 
-        # Si la categoría ya está definida, respetarla
-        if categoria_existente and categoria_existente.strip().lower() not in ["", "nan", "otro"]:
-            return (categoria_existente.title(), f"Categoría original del dataset: {categoria_existente}")
-
-        # Inferencia por palabras clave
+        # Palabras clave para detección
         if any(pal in texto_l for pal in ["escuela", "profesor", "colegio", "educación", "estudiante", "clases"]):
-            return ("Educación", "Palabras clave detectadas: escuela, profesor, clases")
-        elif any(pal in texto_l for pal in ["hospital", "salud", "médico", "vacuna", "enfermo", "eps"]):
-            return ("Salud", "Palabras clave detectadas: salud, hospital, médico")
-        elif any(pal in texto_l for pal in ["basura", "río", "contaminación", "árbol", "limpieza", "reciclaje"]):
-            return ("Medio Ambiente", "Palabras clave detectadas: basura, río, contaminación")
-        elif any(pal in texto_l for pal in ["robo", "violencia", "seguridad", "policía", "arma"]):
-            return ("Seguridad", "Palabras clave detectadas: robo, policía, seguridad")
+            categoria_detectada = "Educación"
+            razon = "Palabras clave detectadas: escuela, profesor, clases"
+        elif any(pal in texto_l for pal in ["hospital", "salud", "médico", "vacuna", "enfermo", "eps", "cita"]):
+            categoria_detectada = "Salud"
+            razon = "Palabras clave detectadas: salud, hospital, médico"
+        elif any(pal in texto_l for pal in ["basura", "río", "contaminación", "árbol", "limpieza", "reciclaje", "ambiente"]):
+            categoria_detectada = "Medio Ambiente"
+            razon = "Palabras clave detectadas: basura, río, contaminación"
+        elif any(pal in texto_l for pal in ["robo", "violencia", "seguridad", "policía", "arma", "asalto"]):
+            categoria_detectada = "Seguridad"
+            razon = "Palabras clave detectadas: robo, policía, seguridad"
         else:
-            return ("Otro", "Sin coincidencias claras – clasificado como 'Otro'")
+            categoria_detectada = "Otro"
+            razon = "Sin coincidencias claras – clasificado como 'Otro'"
 
+        # Comparar con categoría original del dataset
+        if categoria_existente and categoria_existente.strip().lower() not in ["", "nan", "otro"]:
+            categoria_existente = categoria_existente.title()
+            if categoria_existente == categoria_detectada:
+                razon = f"Confirmado por texto: {razon}"
+            else:
+                razon = f"Texto indica '{categoria_detectada.lower()}', pero dataset tenía '{categoria_existente.lower()}'"
+                # Mantiene la categoría original para no sobreescribir
+                categoria_detectada = categoria_existente
+
+        return (categoria_detectada, razon)
+
+    # Aplicar clasificación
     df[["Categorias", "Razon"]] = df.apply(
-        lambda row: pd.Series(clasificar_y_explicar(row["Comentario"], row.get("Categoría Del Problema", ""))),
+        lambda row: pd.Series(
+            clasificar_y_explicar(row["Comentario"], row.get("Categoría Del Problema", ""))
+        ),
         axis=1
     )
 
-    # ============================================================
-    # 📊 Resumen final
-    # ============================================================
-    resumen = df["Categorias"].value_counts().to_dict()
-    print(f"✅ Datos transformados correctamente ({len(df)} registros).")
-    print("📊 Distribución de categorías:", resumen)
+    # ====================================================
+    # 7️⃣ Eliminación de duplicados inteligentes
+    # ====================================================
+    before = len(df)
+    df = df.drop_duplicates(subset=["Comentario", "Ciudad", "Categorias"], keep="first")
+    after = len(df)
+    print(f"🧹 Registros duplicados eliminados: {before - after}")
+
+    # ====================================================
+    # 8️⃣ Renombrar columnas para consistencia con MySQL
+    # ====================================================
+    df = df.rename(columns={"Nivel De Urgencia": "NivelDeUrgencia"})
+
+    # ====================================================
+    # 9️⃣ Resumen final
+    # ====================================================
+    print("✅ Datos transformados correctamente.")
+    print(f"📊 Total registros finales: {len(df)}")
     print("🧩 Columnas finales:", list(df.columns))
 
     return df

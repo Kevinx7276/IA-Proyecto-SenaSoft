@@ -1,5 +1,5 @@
 /* ===============================================
-   🦅 Águila IA – Interfaz Chat Profesional (2025)
+   kelu IA – Interfaz Chat Profesional (2025)
    =============================================== */
 
 :root {
@@ -60,7 +60,7 @@ body {
   position: relative;
 }
 .chat-header::after {
-  content: "🦅";
+  content: "🤖";
   position: absolute;
   right: 20px;
   top: 50%;
